@@ -3,7 +3,7 @@ from flask import Flask, request, Response
 
 app = Flask(__name__)
 
-@app.route('/ussd', methods=['POST'])
+@app.route('/', methods=['POST'])
 def ussd():
     session_id = request.form.get('sessionId')
     phone_number = request.form.get('phoneNumber')
