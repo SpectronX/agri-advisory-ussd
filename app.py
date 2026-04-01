@@ -1,7 +1,33 @@
-import os
 from flask import Flask, request, Response
+import os
+import requests
+from datetime import datetime
 
 app = Flask(__name__)
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+
+def save_farmer(name, phone_number, region, crop, growth_stage):
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json'
+    }
+    data = {
+        'name': name,
+        'phone_number': phone_number,
+        'region': region,
+        'crop': crop,
+        'growth_stage': growth_stage,
+        'registered_at': datetime.utcnow().isoformat()
+    }
+    response = requests.post(
+        f'{SUPABASE_URL}/rest/v1/farmer_profiles',
+        headers=headers,
+        json=data
+    )
+    return response.status_code
 
 @app.route('/', methods=['POST'])
 def ussd():
@@ -34,6 +60,8 @@ def ussd():
         crop = crop_map.get(inputs[2], 'Unknown')
         stage = stage_map.get(inputs[3], 'Unknown')
 
+        save_farmer(name, phone_number, region, crop, growth_stage=stage)
+
         response = f"END Registration successful!\nName: {name}\nRegion: {region}\nCrop: {crop}\nStage: {stage}\n\nYou will receive SMS updates shortly. Thank you."
 
     else:
@@ -44,3 +72,9 @@ def ussd():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
+```
+
+Also update `requirements.txt` to:
+```
+flask
+requests
