@@ -42,8 +42,3 @@ def ussd():
 
 if __name__ == '__main__':
     app.run(debug=True)
-```
-
-Also create a second file called `requirements.txt` with this single line:
-```
-flask
