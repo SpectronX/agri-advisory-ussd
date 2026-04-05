@@ -1,7 +1,8 @@
 from flask import Flask, request, Response
 import os
-import requests
+import json
 from datetime import datetime
+from urllib import request as urllib_request
 
 app = Flask(__name__)
 
@@ -12,26 +13,33 @@ def save_farmer(name, phone_number, region, crop, growth_stage):
     headers = {
         'apikey': SUPABASE_KEY,
         'Authorization': f'Bearer {SUPABASE_KEY}',
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
     }
-    data = {
+    data = json.dumps({
         'name': name,
         'phone_number': phone_number,
         'region': region,
         'crop': crop,
         'growth_stage': growth_stage,
         'registered_at': datetime.utcnow().isoformat()
-    }
-    response = requests.post(
+    }).encode('utf-8')
+
+    req = urllib_request.Request(
         f'{SUPABASE_URL}/rest/v1/farmer_profiles',
+        data=data,
         headers=headers,
-        json=data
+        method='POST'
     )
-    return response.status_code
+    try:
+        with urllib_request.urlopen(req) as response:
+            return response.status
+    except Exception as e:
+        print(f"Supabase error: {e}")
+        return 500
 
 @app.route('/', methods=['POST'])
 def ussd():
-    session_id = request.form.get('sessionId')
     phone_number = request.form.get('phoneNumber')
     text = request.form.get('text', '')
 
@@ -60,7 +68,8 @@ def ussd():
         crop = crop_map.get(inputs[2], 'Unknown')
         stage = stage_map.get(inputs[3], 'Unknown')
 
-        save_farmer(name, phone_number, region, crop, growth_stage=stage)
+        status = save_farmer(name, phone_number, region, crop, stage)
+        print(f"Supabase save status: {status}")
 
         response = f"END Registration successful!\nName: {name}\nRegion: {region}\nCrop: {crop}\nStage: {stage}\n\nYou will receive SMS updates shortly. Thank you."
 
@@ -72,9 +81,3 @@ def ussd():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
-```
-
-Also update `requirements.txt` to:
-```
-flask
-srequests
