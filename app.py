@@ -8,6 +8,25 @@ app = Flask(__name__)
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+
+def supabase_get(endpoint):
+    headers = {
+        'apikey': SUPABASE_KEY,
+        'Authorization': f'Bearer {SUPABASE_KEY}',
+        'Content-Type': 'application/json'
+    }
+    req = urllib_request.Request(
+        f'{SUPABASE_URL}/rest/v1/{endpoint}',
+        headers=headers,
+        method='GET'
+    )
+    try:
+        with urllib_request.urlopen(req) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Supabase GET error: {e}")
+        return []
 
 def save_farmer(name, phone_number, region, crop, growth_stage):
     headers = {
@@ -35,8 +54,54 @@ def save_farmer(name, phone_number, region, crop, growth_stage):
         with urllib_request.urlopen(req) as response:
             return response.status
     except Exception as e:
-        print(f"Supabase error: {e}")
+        print(f"Supabase save error: {e}")
         return 500
+
+def craft_sms(farmer, market_prices, input_rec):
+    prompt = f"""
+You are an agricultural advisor sending an SMS to a Ghanaian farmer.
+Keep the message under 160 characters, plain language, actionable.
+
+Farmer details:
+- Name: {farmer['name']}
+- Crop: {farmer['crop']}
+- Region: {farmer['region']}
+- Growth Stage: {farmer['growth_stage']}
+
+Market price data:
+{json.dumps(market_prices, indent=2)}
+
+Input recommendation:
+{json.dumps(input_rec, indent=2)}
+
+Write a single SMS combining the most relevant market price insight 
+and input recommendation for this farmer. Be specific and helpful.
+"""
+
+    headers = {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+    }
+    data = json.dumps({
+        'model': 'claude-sonnet-4-20250514',
+        'max_tokens': 1000,
+        'messages': [{'role': 'user', 'content': prompt}]
+    }).encode('utf-8')
+
+    req = urllib_request.Request(
+        'https://api.anthropic.com/v1/messages',
+        data=data,
+        headers=headers,
+        method='POST'
+    )
+    try:
+        with urllib_request.urlopen(req) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            return result['content'][0]['text']
+    except Exception as e:
+        print(f"Claude API error: {e}")
+        return None
 
 @app.route('/', methods=['POST'])
 def ussd():
@@ -68,8 +133,26 @@ def ussd():
         crop = crop_map.get(inputs[2], 'Unknown')
         stage = stage_map.get(inputs[3], 'Unknown')
 
-        status = save_farmer(name, phone_number, region, crop, stage)
-        print(f"Supabase save status: {status}")
+        farmer = {
+            'name': name,
+            'phone_number': phone_number,
+            'region': region,
+            'crop': crop,
+            'growth_stage': stage
+        }
+
+        save_farmer(name, phone_number, region, crop, stage)
+
+        market_prices = supabase_get(
+            f'market_prices?crop=eq.{crop}&region=eq.{region}'
+        )
+        input_rec = supabase_get(
+            f'input_recommendations?crop=eq.{crop}&growth_stage=eq.{stage}'
+        )
+
+        sms = craft_sms(farmer, market_prices, input_rec)
+        if sms:
+            print(f"SMS to {phone_number}: {sms}")
 
         response = f"END Registration successful!\nName: {name}\nRegion: {region}\nCrop: {crop}\nStage: {stage}\n\nYou will receive SMS updates shortly. Thank you."
 
@@ -77,6 +160,25 @@ def ussd():
         response = "END Invalid input. Please try again."
 
     return Response(response, mimetype='text/plain')
+
+@app.route('/send-sms', methods=['GET'])
+def send_sms():
+    farmers = supabase_get('farmer_profiles')
+    results = []
+
+    for farmer in farmers:
+        market_prices = supabase_get(
+            f"market_prices?crop=eq.{farmer['crop']}&region=eq.{farmer['region']}"
+        )
+        input_rec = supabase_get(
+            f"input_recommendations?crop=eq.{farmer['crop']}&growth_stage=eq.{farmer['growth_stage']}"
+        )
+        sms = craft_sms(farmer, market_prices, input_rec)
+        if sms:
+            results.append({'farmer': farmer['name'], 'sms': sms})
+            print(f"SMS for {farmer['name']}: {sms}")
+
+    return json.dumps(results, indent=2)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
