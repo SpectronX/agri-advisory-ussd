@@ -76,5 +76,5 @@ if __name__ == '__main__':
 
 #Also update `requirements.txt` to:
 #```
-#flask
-#srequests
+flask
+srequests
