@@ -3,6 +3,7 @@ import os
 import json
 from datetime import datetime
 from urllib import request as urllib_request, parse as urllib_parse
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
 
@@ -133,6 +134,25 @@ def send_sms(phone_number, message):
         print(f"AT SMS error: {e}")
         return None
 
+def scheduled_sms():
+    print("Running scheduled SMS job...")
+    farmers = supabase_get('farmer_profiles')
+    for farmer in farmers:
+        market_prices = supabase_get(
+            f"market_prices?crop=eq.{farmer['crop']}&region=eq.{farmer['region']}"
+        )
+        input_rec = supabase_get(
+            f"input_recommendations?crop=eq.{farmer['crop']}&growth_stage=eq.{farmer['growth_stage']}"
+        )
+        sms = craft_sms(farmer, market_prices, input_rec)
+        if sms:
+            send_sms(farmer['phone_number'], sms)
+            print(f"Scheduled SMS sent to {farmer['name']}: {sms}")
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(scheduled_sms, 'interval', minutes=2)
+scheduler.start()
+
 @app.route('/', methods=['POST'])
 def ussd():
     phone_number = request.form.get('phoneNumber')
@@ -191,26 +211,6 @@ def ussd():
         response = "END Invalid input. Please try again."
 
     return Response(response, mimetype='text/plain')
-
-@app.route('/send-sms', methods=['GET'])
-def send_weekly_sms():
-    farmers = supabase_get('farmer_profiles')
-    results = []
-
-    for farmer in farmers:
-        market_prices = supabase_get(
-            f"market_prices?crop=eq.{farmer['crop']}&region=eq.{farmer['region']}"
-        )
-        input_rec = supabase_get(
-            f"input_recommendations?crop=eq.{farmer['crop']}&growth_stage=eq.{farmer['growth_stage']}"
-        )
-        sms = craft_sms(farmer, market_prices, input_rec)
-        if sms:
-            send_sms(farmer['phone_number'], sms)
-            results.append({'farmer': farmer['name'], 'sms': sms})
-            print(f"SMS sent to {farmer['name']}: {sms}")
-
-    return json.dumps(results, indent=2)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
