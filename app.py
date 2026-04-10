@@ -2,13 +2,15 @@ from flask import Flask, request, Response
 import os
 import json
 from datetime import datetime
-from urllib import request as urllib_request
+from urllib import request as urllib_request, parse as urllib_parse
 
 app = Flask(__name__)
 
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_KEY = os.environ.get('SUPABASE_KEY')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+AT_USERNAME = os.environ.get('AT_USERNAME')
+AT_API_KEY = os.environ.get('AT_API_KEY')
 
 def supabase_get(endpoint):
     headers = {
@@ -74,7 +76,7 @@ Market price data:
 Input recommendation:
 {json.dumps(input_rec, indent=2)}
 
-Write a single SMS combining the most relevant market price insight 
+Write a single SMS combining the most relevant market price insight
 and input recommendation for this farmer. Be specific and helpful.
 """
 
@@ -101,6 +103,35 @@ and input recommendation for this farmer. Be specific and helpful.
             return result['content'][0]['text']
     except Exception as e:
         print(f"Claude API error: {e}")
+        return None
+
+def send_sms(phone_number, message):
+    data = urllib_parse.urlencode({
+        'username': AT_USERNAME,
+        'to': phone_number,
+        'message': message,
+        'from': 'AgriAdvisory'
+    }).encode('utf-8')
+
+    headers = {
+        'apiKey': AT_API_KEY,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+    }
+
+    req = urllib_request.Request(
+        'https://api.sandbox.africastalking.com/version1/messaging',
+        data=data,
+        headers=headers,
+        method='POST'
+    )
+    try:
+        with urllib_request.urlopen(req) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            print(f"SMS sent: {result}")
+            return result
+    except Exception as e:
+        print(f"AT SMS error: {e}")
         return None
 
 @app.route('/', methods=['POST'])
@@ -152,7 +183,8 @@ def ussd():
 
         sms = craft_sms(farmer, market_prices, input_rec)
         if sms:
-            print(f"SMS to {phone_number}: {sms}")
+            send_sms(phone_number, sms)
+            print(f"SMS sent to {phone_number}: {sms}")
 
         response = f"END Registration successful!\nName: {name}\nRegion: {region}\nCrop: {crop}\nStage: {stage}\n\nYou will receive SMS updates shortly. Thank you."
 
@@ -162,7 +194,7 @@ def ussd():
     return Response(response, mimetype='text/plain')
 
 @app.route('/send-sms', methods=['GET'])
-def send_sms():
+def send_weekly_sms():
     farmers = supabase_get('farmer_profiles')
     results = []
 
@@ -175,8 +207,9 @@ def send_sms():
         )
         sms = craft_sms(farmer, market_prices, input_rec)
         if sms:
+            send_sms(farmer['phone_number'], sms)
             results.append({'farmer': farmer['name'], 'sms': sms})
-            print(f"SMS for {farmer['name']}: {sms}")
+            print(f"SMS sent to {farmer['name']}: {sms}")
 
     return json.dumps(results, indent=2)
 
