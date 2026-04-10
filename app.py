@@ -110,7 +110,6 @@ def send_sms(phone_number, message):
         'username': AT_USERNAME,
         'to': phone_number,
         'message': message,
-        'from': 'AgriAdvisory'
     }).encode('utf-8')
 
     headers = {
